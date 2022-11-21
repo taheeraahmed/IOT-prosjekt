@@ -1,18 +1,20 @@
 #include <Arduino.h>
 #include <ESP32_Servo.h>
 #include <map>
+#include <list>
 
 // Defining the necessary pins
-const int MOISTURE_PIN_1 = 25;
-const int MOISTURE_PIN_2 = 25;
-const int MOISTURE_PIN_3 = 25;
+const int MOISTURE_PIN_1 = 39;
+const int MOISTURE_PIN_2 = 34;
+const int MOISTURE_PIN_3 = 35;
 const int PUMP_PIN = 26;
 Servo servo; 
 
 // Humidity threshold values
-const int threshold = [20,60];
+const int lowThreshold = 20;
+const int highThreshold = 60;
 
-struct plant {
+struct Plant {
     int moisturePin;
     int moistureValue;
     int moisturePercent;
@@ -32,26 +34,27 @@ int getPercent(int x, int in_min, int in_max, int out_min, int out_max) {
 }
 
 // Function which updates the moisture values 
-plant updatePlantValues(plant plant) {
+Plant updatePlantValues(Plant plant) {
     const int airValue = 4094;
     const int waterValue = 2800;
 
     plant.moistureValue = analogRead(plant.moisturePin); 
-    plant.moisturePercent = getPercent(soilMoistureValue, waterValue, airValue,   100, 0);
+    plant.moisturePercent = getPercent(plant.moistureValue, waterValue, airValue,   100, 0);
     return plant;
 }
 
 // Turn on pump
-void turnOnPump(Servo myServo, int soilMoisturePercent, int highThreshold) {
+void turnOnPump(Servo myServo, Plant plant, int highThreshold) {
     int position = 0;
     myServo.attach(PUMP_PIN);
 
-    while(soilMoisturePercent < highThreshold) {
+    while(plant.moisturePercent < highThreshold) {
         myServo.write(position);
         position++;
         delay(20);
-        soilMoisturePercent = updateMoistureValues();
+        plant = updatePlantValues(plant);
     }
+
     myServo.detach();
 }
 
@@ -63,20 +66,19 @@ void setup() {
 }
  
 void loop() {
+    Serial.println("Going into the loop!");
     plant1 = updatePlantValues(plant1);
     plant2 = updatePlantValues(plant2);
     plant3 = updatePlantValues(plant3);
 
     // If the soil moisture is below the low threshold, turn on the pump
-    switch() {
-        case plant1.moisturePercent < threshold[0]:
-            turnOnPump(servo, plant1.moisturePercent, threshold[1]);
-            break;
-        case plant2.moisturePercent < threshold[0]:
-            turnOnPump(servo, plant2.moisturePercent, threshold[1]);
-            break;
-        case plant3.moisturePercent < threshold[0]:
-            turnOnPump(servo, plant3.moisturePercent, threshold[1]);
-            break;
+    if(plant1.moisturePercent < lowThreshold) {
+        turnOnPump(servo, plant1, highThreshold);
+    }
+    else if(plant2.moisturePercent < lowThreshold) {
+        turnOnPump(servo, plant2, highThreshold);
+    }
+    else if(plant3.moisturePercent < lowThreshold) {
+        turnOnPump(servo, plant3, highThreshold);
     }
 }
