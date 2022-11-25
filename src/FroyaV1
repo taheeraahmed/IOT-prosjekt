@@ -1,0 +1,215 @@
+#include <utils.h>
+#include <ESP32Servo.h>
+#include <Arduino.h>
+#include <ESP32Servo.h>
+#include "ThingsBoard.h"
+#include <WiFi.h>
+#include <Wire.h>
+#include <Adafruit_Sensor.h>
+#include "Adafruit_BME680.h"
+
+#define WIFI_AP             "OmegaV"
+#define WIFI_PASSWORD       "GullSkop"
+#define TOKEN               "FroyaGrorSpirer" //Finner du under device credentials
+#define THINGSBOARD_SERVER  "178.79.149.202"
+#define SERIAL_DEBUG_BAUD   115200
+#define COUNT_OF(x) ((sizeof(x)/sizeof(0[x])) / ((size_t)(!(sizeof(x) % sizeof(0[x])))))
+WiFiClient espClient;
+ThingsBoard tb(espClient);
+PubSubClient pb(espClient);
+Adafruit_BME680 bme;
+
+
+int status = WL_IDLE_STATUS;
+int uploadWait=1000;
+int SetPosition = 0;
+int temperature;
+int valuedata;
+unsigned long uploadRef = 0;
+unsigned long currentMillis;
+unsigned long currentMillis2;
+unsigned long prewatering;
+unsigned long watertime;
+bool subscribed = false;
+
+
+// Defining the necessary pins
+const int led = 23;
+const int MOISTURE_PIN_1 = 39;
+const int MOISTURE_PIN_2 = 35;
+const int MOISTURE_PIN_3 = 34;
+const int PUMP_PIN = 33;
+Servo myServo; 
+
+// Humidity threshold values
+const int lowThreshold = 40;
+const int highThreshold = 60;
+
+RPC_Response plant1change(const RPC_Data &data){
+  valuedata=data["moist"];
+  Serial.print("noe ankom");
+  Serial.print(valuedata);
+  return RPC_Response("plant1", 38);
+}
+RPC_Response plant2rpc(const RPC_Data &data){
+  int valuedata2=data["plant2var"];
+  Serial.print("noe ankom");
+  Serial.print(valuedata2);
+  return RPC_Response("exampleresponse", 38);
+}
+RPC_Response plant3rpc(const RPC_Data &data){
+  int valuedata3=data["plant3var"];
+  Serial.print("noe ankom");
+  Serial.print(valuedata3);
+  return RPC_Response("exampleresponse", 38);
+}
+
+
+void InitWiFi();
+void reconnect();
+
+const std::vector<RPC_Callback> callbacks = {
+  { "plant1_set_moist", plant1change },
+  { "plant2var", plant2rpc},
+  {"plant3var", plant3rpc}
+};
+
+
+void setup() {
+    Serial.begin(115200); 
+    plant1.moisturePin = MOISTURE_PIN_1;
+    plant2.moisturePin = MOISTURE_PIN_2;
+    plant3.moisturePin = MOISTURE_PIN_3;
+    WiFi.begin(WIFI_AP, WIFI_PASSWORD);
+    InitWiFi();
+    bool statusBME = bme.begin(0x76);  
+    if (!statusBME) {
+        Serial.println("Could not find a valid BME680 sensor, check wiring!");
+    while (1);
+  }
+}
+ 
+void loop() {
+ //   Serial.println("Going into the loop!");
+    currentMillis= millis();
+
+  if (WiFi.status() != WL_CONNECTED) {
+    reconnect();
+  }
+
+  if (!tb.connected()) {
+    Serial.print("Connecting to: ");
+    Serial.print(THINGSBOARD_SERVER);
+    Serial.print(" with token ");
+    Serial.println(TOKEN);
+    if (!tb.connect(THINGSBOARD_SERVER, TOKEN)) {
+      Serial.println("Failed to connect");
+      return;
+    }
+  }
+  if (!subscribed) {
+    Serial.println("Subscribing for RPC...");
+
+    // Perform a subscription. All consequent data processing will happen in
+    // callbacks as denoted by callbacks[] array.
+    if (!tb.RPC_Subscribe(callbacks.cbegin(), callbacks.cend())) {
+      Serial.println("Failed to subscribe for RPC");
+      return;
+    }
+
+    Serial.println("Subscribe done");
+    subscribed = true;
+  }
+  plant1 = updatePlantValues(plant1);
+  plant2 = updatePlantValues(plant2);
+  plant3 = updatePlantValues(plant3);
+  temperature = bme.readTemperature();
+  if (currentMillis - uploadRef > uploadWait) {
+    uploadRef = currentMillis;
+    tb.sendTelemetryFloat("plant 1", constrain(map(analogRead(MOISTURE_PIN_1),2800,4094,100,0),0,100));
+    tb.sendTelemetryFloat("plant 2", constrain(map(analogRead(MOISTURE_PIN_2),2800,4094,100,0),0,100));
+    tb.sendTelemetryFloat("plant 3", constrain(map(analogRead(MOISTURE_PIN_3),2800,4094,100,0),0,100));
+    tb.sendTelemetryFloat("temp", temperature);
+    tb.loop();
+    // If the soil moisture is below the low threshold, turn on the pump
+    
+    if(currentMillis - prewatering > 5000) {
+        watertime=millis();
+        if(plant1.moisturePercent < lowThreshold) {
+         myServo.attach(PUMP_PIN);
+         while (plant1.moisturePercent < highThreshold) {
+            currentMillis2=millis();
+            myServo.write(180);
+            if (currentMillis2-watertime> 5000)
+            {
+                watertime=currentMillis2;
+                break;
+            }
+            
+            
+         }
+         myServo.write(90);
+         
+        }
+        else if(plant2.moisturePercent < lowThreshold) {
+         myServo.attach(PUMP_PIN);
+         while (plant2.moisturePercent < highThreshold) {
+            currentMillis2=millis();
+            myServo.write(180);
+            if (currentMillis2-watertime> 5000)
+            {
+                watertime=currentMillis2;
+                break;
+            }
+         }
+         myServo.write(90);
+         
+        }
+        else if(plant3.moisturePercent < lowThreshold) {
+         myServo.attach(PUMP_PIN);
+         while (plant3.moisturePercent < highThreshold) {
+            currentMillis2=millis();
+            myServo.write(180);
+            if (currentMillis2-watertime> 5000)
+            {
+                watertime=currentMillis2;
+                break;
+            }
+         }
+         myServo.write(90);
+         
+        }
+
+
+        myServo.detach();
+        prewatering=millis();
+    }
+    
+    }
+    
+    
+}
+
+void InitWiFi()
+{
+  Serial.println("Connecting to AP ...");
+
+  WiFi.begin(WIFI_AP, WIFI_PASSWORD);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("Connected to AP");
+}
+
+void reconnect() {
+  status = WiFi.status();
+  if ( status != WL_CONNECTED) {
+    WiFi.begin(WIFI_AP, WIFI_PASSWORD);
+    while (WiFi.status() != WL_CONNECTED) {
+      delay(500);
+      Serial.print(".");
+    }
+    Serial.println("Connected to AP");
+  }
+}
