@@ -9,8 +9,8 @@
 #include <Adafruit_Sensor.h>
 #include "Adafruit_BME680.h"
 
-#define WIFI_AP             "OmegaV"
-#define WIFI_PASSWORD       "GullSkop"
+#define WIFI_AP             "*********"
+#define WIFI_PASSWORD       "*********"
 #define TOKEN               "FroyaGrorSpirer" //Finner du under device credentials
 #define THINGSBOARD_SERVER  "178.79.149.202"
 #define SERIAL_DEBUG_BAUD   115200
